@@ -2,7 +2,7 @@
 Simple JPEG Decoder
 =======
 
-A very simple JPEG decoder, just for learning the process of JPEG decoding. Only support Baseline DCT with H1V1 chroma subsampling.
+A very simple JPEG decoder, just for learning the process of JPEG decoding. Only support Baseline DCT with H1V1 chroma subsampling YCrCb image.
 
 The result will export to PPM format.
 
