@@ -1,8 +1,20 @@
-SIMPLE JPEG DECODER
-========
 
-This is a very simple JPEG decoder, just for learning the process of JPEG decoding.
+Simple JPEG Decoder
+=======
+
+A very simple JPEG decoder, just for learning the process of JPEG decoding.
 
 Only support Baseline DCT, with components' Horizontal & Vertical sampling is 1.
 
-save to PPM format.
+The result will export to PPM format.
+
+
+
+References
+=======
+
+http://www.codingnow.com/2000/download/jpeg.txt, (in Chinese)
+http://blog.csdn.net/lpt19832003/article/details/1713718, (in Chinese)
+http://cat1226.bokee.com/4574350.html, (in Chinese)
+
+http://www.opennet.ru/docs/formats/jpeg.txt
