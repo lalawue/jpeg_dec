@@ -21,5 +21,5 @@ http://www.opennet.ru/docs/formats/jpeg.txt
 
 Sources
 =======
-http://keyj.emphy.de/nanojpeg/
+http://keyj.emphy.de/nanojpeg/ 
 https://code.google.com/p/jpeg-compressor/
