@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
 #include <assert.h>
 
 typedef unsigned char u8;
@@ -28,6 +27,7 @@ typedef signed int s32;
 #define M_DHT 0xffc4             // Define Huffman table
 #define M_SOS 0xffda             // Start of scan
 #define M_DRI 0xffdd             // Define restart interval
+#define M_COM 0xfffe             // Comment
 
 enum { D_ERROR = 0, D_INFO, D_MARKER, D_COEFF, D_VERBOSE };
 
@@ -148,8 +148,8 @@ _bits_try(struct s_bctx *b, int n) {
             b->rb_bits += 8;
             continue;
         }
-        b->rb_buf <<= 8;
         buf = _next_byte(b);
+        b->rb_buf <<= 8;
         b->rb_buf |= buf;
         b->rb_bits += 8;
         if (buf == 0xff) {
@@ -160,17 +160,11 @@ _bits_try(struct s_bctx *b, int n) {
                     break;
                 case (M_EOI & 0xff):
                     _skip_bytes(b, -2);
-                    _set_eof( b );
+                    _set_eof(b);
                     break;
                 default:
-                    if ((marker & 0xf8) != 0xd0) {
-                        _log(D_ERROR, "invalid marker\n");
-                        return 0;
-                    }
-                    else {
-                        b->rb_buf |= marker;
-                        b->rb_bits += 8;
-                    }
+                    _log(D_ERROR, "# Should not reach here ! #\n");
+                    assert(0);
             }
         }
     }
@@ -237,17 +231,17 @@ struct s_jctx {
     struct s_ht_tbl htbl[4];
     struct s_jcomp comp[3];
 
-    int mcu_sizex;               /* mcu width */
-    int mcu_sizey;               /* mcu height */
+    int mcu_sizex;              /* mcu width */
+    int mcu_sizey;              /* mcu height */
     int h_mcus;                 /* horizontal MCU count */
     int v_mcus;                 /* vertical MCU count */
     int mcu_blocks;             /* max mcu blocks */
 
-    int restintv;                /* rest interval */
-    int restintv_next;           /* next */
-    int restintv_cnt;            /* count */
+    int restintv;               /* rest interval */
+    int restintv_next;          /* next */
+    int restintv_cnt;           /* count */
 
-    u8 *scan_out;                 /* one line mcus */
+    u8 *scan_out;               /* one line mcus */
     int scan_len;
 
     u8 *pixels;
@@ -416,18 +410,18 @@ _decode_frame(struct s_bctx *b, struct s_jctx *j) {
         assert((c->v_samp & (c->v_samp - 1)) == 0); /* NOP */
         if (hmax < c->h_samp) hmax = c->h_samp;
         if (vmax < c->v_samp) vmax = c->v_samp;
+        //
+        _log(D_COEFF, "\tcomp %d, h:v %d:%d, qtbl_id:%d\n", c->id, c->h_samp, c->v_samp, c->qtbl_id);
+        if ((c->h_samp!=1) || (c->v_samp!=1)) {
+            _log(D_ERROR, "# Unsupported horizontal & vertical sample factor ! #\n");
+            _set_eof(b);
+            return;
+        }
     }
     j->mcu_sizex = hmax << 3;
     j->mcu_sizey = vmax << 3;
     j->h_mcus = (j->width + j->mcu_sizex - 1) / j->mcu_sizex;
     j->v_mcus = (j->height + j->mcu_sizey - 1) / j->mcu_sizey;
-    for (i=0; i<j->comp_count; i++) {
-        struct s_jcomp *c = &j->comp[i];
-        c->h_mcus = (j->width * c->h_samp + hmax - 1) / hmax;
-        c->v_mcus = (j->height * c->v_samp + vmax - 1) / vmax;
-        _log(D_COEFF, "\tcomp %d, h:v %d:%d, qtbl_id:%d\n",
-             c->id, c->h_samp, c->v_samp, c->qtbl_id);
-    }
     {
         struct s_jcomp *c = &j->comp[0];
         j->mcu_blocks = c->h_samp * c->v_samp + 2;
@@ -585,7 +579,7 @@ _check_vlc_in_ht(struct s_bctx *b, struct s_ht_tbl *ht, u8 *code) {
         for (i=0; i<a->count; i++) {
             struct s_ht_vlc *v = &a->v[i];
             if (val == v->val) {
-                _log(D_VERBOSE, "src:%x code:%x bits:%d\n", _bits_try(b, 16), v->code, n);
+                _log(D_VERBOSE, "src:%x code:%x bits:%d\n", val<<(16-n) , v->code, n);
                 _bits_skip(b, n);
                 if ( code ) { *code = (u8)v->code; }
                 n = v->code & 0xf;
@@ -597,8 +591,9 @@ _check_vlc_in_ht(struct s_bctx *b, struct s_ht_tbl *ht, u8 *code) {
             }
         }
     }
-    _log(D_ERROR, "!!! Fail to decode huff at %d, val %s\n", _get_offset(b), _print_binary(val, 16));
+    _log(D_ERROR, "# Fail to decode huff at %d, val %s #\n", _get_offset(b), _print_binary(val, 16));
     _dump_buf(_get_ptr(b), DCTSIZE);
+    assert(0);
     return 0;
 }
 
@@ -687,8 +682,11 @@ _decode_scan(struct s_bctx *b, struct s_jctx *j) {
                         _skip_bytes(b, -2);
                         goto end_scan_line;
                     }
-                    _log(D_VERBOSE, "meets %4x, %04x\n", RSTx, j->restintv_next);
-                    assert(((RSTx&0x7)==j->restintv_next) && (RSTx>=0xffd0) && (RSTx<=0xffd7));
+                    _log(D_VERBOSE, "RST meets %4x, %04x\n", RSTx, j->restintv_next);
+                    if (((RSTx&0xfff8)!=0xffd0) || ((RSTx&0x7)!=j->restintv_next)) {
+                        _dump_buf(_get_ptr(b), DCTSIZE);
+                        assert(0);
+                    }
                     j->restintv_next = (RSTx + 1) & 0x7;
                     j->restintv_cnt = j->restintv;
                     for (i=0; i<j->comp_count; i++) {
@@ -706,11 +704,20 @@ void
 _decode_dri(struct s_bctx *b, struct s_jctx *j) {
     u16 lr = _next_word(b);
     u16 ri = _next_word(b);
-    _log(D_MARKER, "DRI info %d, %d\n", lr, ri);
+    _log(D_MARKER, "DRI info %d, %x\n", lr, ri);
     j->restintv = ri;
     j->restintv_cnt = ri;
     j->restintv_next = 0;
 }
+
+int
+_skip_segment(struct s_bctx *b) {
+    u16 len = _next_word(b);
+    _skip_bytes(b, len - 2);
+    return len;
+}
+
+
 
 int
 _decode(struct s_bctx *b, struct s_jctx *j) {
@@ -726,12 +733,13 @@ _decode(struct s_bctx *b, struct s_jctx *j) {
             case M_SOS: _decode_scan(b, j); break;
             default:
                 if (marker>=M_APP0 && marker<=M_APPn) {
-                    int len = _next_word(b);
-                    _skip_bytes(b,  len - 2);
-                    _log(D_MARKER, "APP segment length %d\n", len);
+                    _log(D_MARKER, "APP segment length %d\n", _skip_segment(b));
+                }
+                else if (marker == M_COM) {
+                    _log(D_MARKER, "COM segment length %d\n", _skip_segment(b));
                 }
                 else {
-                    _log(D_ERROR, "Unknow marker %x\n", marker);
+                    _log(D_ERROR, "# Unknow marker %x ! #\n", marker);
                     return 0;
                 }
                 break;
