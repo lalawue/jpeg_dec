@@ -271,7 +271,7 @@ _create_ht_ary(int count) {
 }
 
 void
-_destry_ht_ary(struct s_ht_tbl *ht) {
+_destroy_ht_ary(struct s_ht_tbl *ht) {
     int i;
     for (i=0; i<VLC_MAX_LEN; i++) {
         struct s_ht_ary *a = &ht->ary[i];
@@ -294,7 +294,7 @@ _destroy_jctx(struct s_jctx *j) {
     if ( j ) {
         int i;
         for (i=0; i<4; i++)
-            _destry_ht_ary( &j->htbl[i] );
+            _destroy_ht_ary( &j->htbl[i] );
         free(j->scan_out);
         free(j->pixels);
         free(j);
