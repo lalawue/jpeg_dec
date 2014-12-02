@@ -259,6 +259,27 @@ static u8 _IZZ[64] = {
     53, 60, 61, 54, 47, 55, 62, 63,
 };
 
+struct s_ht_ary
+_create_ht_ary(int count) {
+    struct s_ht_ary a = {0, NULL};
+    if (count > 0) {
+        a.count = count;
+        a.v = malloc(sizeof(*a.v) * count); /* free in destroy_jctx */
+        memset(a.v, 0, sizeof(*a.v) * count);
+    }
+    return a;
+}
+
+void
+_destry_ht_ary(struct s_ht_tbl *ht) {
+    int i;
+    for (i=0; i<VLC_MAX_LEN; i++) {
+        struct s_ht_ary *a = &ht->ary[i];
+        if (a->count > 0)
+            free(a->v);
+    }
+}
+
 struct s_jctx*
 _create_jctx(void) {
     struct s_jctx *j = malloc(sizeof(*j));
@@ -271,38 +292,21 @@ _create_jctx(void) {
 void
 _destroy_jctx(struct s_jctx *j) {
     if ( j ) {
-        int i, n;
-        for (n=0; n<4; n++) {
-            struct s_ht_tbl *ht = &j->htbl[n];
-            for (i=0; i<VLC_MAX_LEN; i++) {
-                struct s_ht_ary *a = ht->ary;
-                if (a->count > 0)
-                    free(a->v);
-            }
-        }
+        int i;
+        for (i=0; i<4; i++)
+            _destry_ht_ary( &j->htbl[i] );
         free(j->scan_out);
         free(j->pixels);
         free(j);
     }
 }
 
-struct s_ht_ary
-_create_ht_ary(int count) {
-    struct s_ht_ary a = {0, NULL};
-    if (count > 0) {
-        a.count = count;
-        a.v = malloc(sizeof(*a.v) * count); /* free in destroy_jctx */
-        memset(a.v, 0, sizeof(*a.v) * count);
-    }
-    return a;
-};
-
 void
 _save_to_ppm(struct s_jctx *j) {
     if ( j->scan_out ) {
         FILE *fp = fopen("export.ppm", "wb");
         assert(fp);
-        fprintf(fp, "P6\n");
+        fprintf(fp, "P%d\n", j->mcu_blocks<=1 ? 5 : 6);
         fprintf(fp, "%d %d\n255\n", j->width, j->height);
         fwrite(j->pixels, 1, j->pixels_len, fp);
         fclose(fp);
@@ -424,11 +428,12 @@ _decode_frame(struct s_bctx *b, struct s_jctx *j) {
     j->v_mcus = (j->height + j->mcu_sizey - 1) / j->mcu_sizey;
     {
         struct s_jcomp *c = &j->comp[0];
-        j->mcu_blocks = c->h_samp * c->v_samp + 2;
-        j->scan_len =  j->width * j->mcu_sizey * 3;
+        j->mcu_blocks = c->h_samp * c->v_samp + j->comp_count - 1;
+
+        j->scan_len =  j->width * j->mcu_sizey * j->comp_count;
         j->scan_out = (u8*)malloc( j->scan_len );
 
-        j->pixels_len = j->width * 3 * j->height;
+        j->pixels_len = j->width * j->height * j->comp_count;
         j->pixels = (u8*)malloc( j->pixels_len );
     }
     _log(D_COEFF, "\tmcu, sx:%d sy:%d h:%d v:%d blocks:%d\n",
@@ -568,6 +573,20 @@ _h1v1_convert_mcu(struct s_jctx *j, int mcu_n) {
     //_dump_buf(out, j->width*3);
 }
 
+void
+_grayscale_convert_mcu(struct s_jctx *j, int mcu_n) {
+    int y, obase, pbase;
+    u8 *out = j->scan_out;
+    u8 *py = j->comp[0].pixels;
+    pbase = 0;
+    obase = mcu_n * j->mcu_sizex;
+    for (y=0; y<j->mcu_sizey; y++) {
+        memcpy(&out[obase], &py[pbase], DCTSIZE);
+        pbase += DCTSIZE;
+        obase += j->width;
+    }
+}
+
 int
 _check_vlc_in_ht(struct s_bctx *b, struct s_ht_tbl *ht, u8 *code) {
     int i, n, val;
@@ -672,7 +691,10 @@ _decode_scan(struct s_bctx *b, struct s_jctx *j) {
                 for (i=0; i<j->mcu_blocks; i++) {
                     _decode_block(b, j, i);
                 }
-                _h1v1_convert_mcu( j, x ); // YUV to RGB
+                switch ( j->mcu_blocks ) {
+                    case 1: _grayscale_convert_mcu( j, x ); break;
+                    case 3: _h1v1_convert_mcu( j, x ); break; // YUV to RGB
+                }
 
                 // restart every comp's dc
                 if (j->restintv && !(--j->restintv_cnt)) {
